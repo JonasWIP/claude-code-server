@@ -1,0 +1,27 @@
+# Environment files (contain secrets)
+.env
+
+# Workspace directory (user data)
+workspace/
+
+# Node modules
+node_modules/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+.cache/

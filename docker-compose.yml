@@ -1,0 +1,86 @@
+services:
+  claude-code:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: claude-code-server
+    hostname: claude-code
+    restart: unless-stopped
+
+    # Environment variables from .env file
+    env_file:
+      - .env
+
+    environment:
+      - TZ=Europe/Berlin
+      - TERM=xterm-256color
+      - API_PORT=3100
+      - WORKSPACE=/home/claude/workspace
+
+    # API port mapping
+    ports:
+      - "3100:3100"
+
+    volumes:
+      # Workspace for cloned repositories
+      - ./workspace:/home/claude/workspace
+
+      # SSH keys (read-only for security)
+      - ./config/ssh:/home/claude/.ssh:ro
+
+      # Docker socket for Docker-in-Docker (optional)
+      - /var/run/docker.sock:/var/run/docker.sock
+
+      # Persist npm cache
+      - claude-npm-cache:/home/claude/.npm
+
+      # Persist Maven cache
+      - claude-maven-cache:/home/claude/.m2
+
+      # Persist Gradle cache
+      - claude-gradle-cache:/home/claude/.gradle
+
+      # Claude Code configuration persistence
+      - claude-config:/home/claude/.claude
+
+    # Use host network for easier access to local services
+    # Alternative: Use bridge network with port mappings
+    network_mode: bridge
+
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 8G
+        reservations:
+          cpus: '1'
+          memory: 2G
+
+    # Logging configuration with rotation
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+    # Security options
+    security_opt:
+      - no-new-privileges:true
+
+    # Start API server by default
+    command: ["api"]
+
+    # Keep container running
+    stdin_open: true
+    tty: true
+
+volumes:
+  claude-npm-cache:
+    driver: local
+  claude-maven-cache:
+    driver: local
+  claude-gradle-cache:
+    driver: local
+  claude-config:
+    driver: local
