@@ -25,6 +25,9 @@ services:
       # Workspace for cloned repositories
       - ./workspace:/home/claude/workspace
 
+      # Scripts (for development)
+      - ./scripts:/scripts
+
       # SSH keys (read-only for security)
       - ./config/ssh:/home/claude/.ssh:ro
 

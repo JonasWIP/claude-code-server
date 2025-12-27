@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Claude Code Server</title>
+    <style>
+        :root {
+            --bg-primary: #0d1117;
+            --bg-secondary: #161b22;
+            --bg-tertiary: #21262d;
+            --border-color: #30363d;
+            --text-primary: #e6edf3;
+            --text-secondary: #8b949e;
+            --accent-blue: #58a6ff;
+            --accent-green: #3fb950;
+            --accent-yellow: #d29922;
+            --accent-red: #f85149;
+            --accent-purple: #a371f7;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px 0;
+            border-bottom: 1px solid var(--border-color);
+            margin-bottom: 30px;
+        }
+
+        header h1 {
+            font-size: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        header h1 span {
+            color: var(--accent-purple);
+        }
+
+        .status-badge {
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+        }
+
+        .status-badge.healthy {
+            color: var(--accent-green);
+            border-color: var(--accent-green);
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        @media (max-width: 900px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 20px;
+        }
+
+        .card h2 {
+            font-size: 1rem;
+            margin-bottom: 15px;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 6px;
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+        }
+
+        select, input, textarea {
+            width: 100%;
+            padding: 10px 12px;
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            color: var(--text-primary);
+            font-size: 0.95rem;
+            font-family: inherit;
+        }
+
+        select:focus, input:focus, textarea:focus {
+            outline: none;
+            border-color: var(--accent-blue);
+        }
+
+        textarea {
+            min-height: 100px;
+            resize: vertical;
+        }
+
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .checkbox-group input {
+            width: auto;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            font-size: 0.95rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: var(--accent-blue);
+            color: #fff;
+        }
+
+        .btn-primary:hover {
+            background: #4a90e2;
+        }
+
+        .btn-primary:disabled {
+            background: var(--bg-tertiary);
+            cursor: not-allowed;
+        }
+
+        .btn-secondary {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+        }
+
+        .task-list {
+            list-style: none;
+        }
+
+        .task-item {
+            padding: 12px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            margin-bottom: 10px;
+            cursor: pointer;
+            transition: border-color 0.2s;
+        }
+
+        .task-item:hover {
+            border-color: var(--accent-blue);
+        }
+
+        .task-item.selected {
+            border-color: var(--accent-blue);
+            background: rgba(88, 166, 255, 0.1);
+        }
+
+        .task-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 6px;
+        }
+
+        .task-repo {
+            font-weight: 500;
+        }
+
+        .task-status {
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+        }
+
+        .task-status.queued { background: var(--bg-tertiary); color: var(--text-secondary); }
+        .task-status.cloning, .task-status.checkout { background: rgba(210, 153, 34, 0.2); color: var(--accent-yellow); }
+        .task-status.developing { background: rgba(88, 166, 255, 0.2); color: var(--accent-blue); }
+        .task-status.testing { background: rgba(163, 113, 247, 0.2); color: var(--accent-purple); }
+        .task-status.committing, .task-status.pushing { background: rgba(63, 185, 80, 0.2); color: var(--accent-green); }
+        .task-status.completed { background: rgba(63, 185, 80, 0.2); color: var(--accent-green); }
+        .task-status.failed { background: rgba(248, 81, 73, 0.2); color: var(--accent-red); }
+
+        .task-step {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+
+        .log-viewer {
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 12px;
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 0.85rem;
+            max-height: 400px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        .log-viewer:empty::before {
+            content: 'Keine Logs vorhanden. Waehle einen Task aus oder starte einen neuen.';
+            color: var(--text-secondary);
+        }
+
+        .log-line {
+            padding: 2px 0;
+            border-bottom: 1px solid var(--bg-tertiary);
+        }
+
+        .repo-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 12px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            margin-bottom: 8px;
+        }
+
+        .repo-info {
+            flex: 1;
+        }
+
+        .repo-name {
+            font-weight: 500;
+            color: var(--accent-blue);
+        }
+
+        .repo-desc {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin-top: 4px;
+        }
+
+        .repo-badge {
+            font-size: 0.75rem;
+            padding: 2px 8px;
+            border-radius: 10px;
+            background: var(--bg-tertiary);
+        }
+
+        .repo-badge.private {
+            color: var(--accent-yellow);
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: var(--text-secondary);
+        }
+
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .tab {
+            padding: 8px 16px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            cursor: pointer;
+            color: var(--text-secondary);
+            transition: all 0.2s;
+        }
+
+        .tab.active {
+            background: var(--accent-blue);
+            border-color: var(--accent-blue);
+            color: #fff;
+        }
+
+        .tab:hover:not(.active) {
+            border-color: var(--accent-blue);
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        .collapsible {
+            margin-top: 10px;
+        }
+
+        .collapsible-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        .collapsible-header:hover {
+            color: var(--text-primary);
+        }
+
+        .collapsible-content {
+            margin-top: 10px;
+        }
+
+        .spinner {
+            width: 16px;
+            height: 16px;
+            border: 2px solid var(--bg-tertiary);
+            border-top-color: var(--accent-blue);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .result-box {
+            margin-top: 15px;
+            padding: 12px;
+            border-radius: 6px;
+            font-size: 0.9rem;
+        }
+
+        .result-box.success {
+            background: rgba(63, 185, 80, 0.1);
+            border: 1px solid var(--accent-green);
+            color: var(--accent-green);
+        }
+
+        .result-box.error {
+            background: rgba(248, 81, 73, 0.1);
+            border: 1px solid var(--accent-red);
+            color: var(--accent-red);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1><span>Claude</span> Code Server</h1>
+            <div id="serverStatus" class="status-badge">Verbinde...</div>
+        </header>
+
+        <div class="tabs">
+            <div class="tab active" data-tab="tasks">Tasks</div>
+            <div class="tab" data-tab="repos">Repositories</div>
+        </div>
+
+        <div id="tasksTab">
+            <div class="grid">
+                <div class="card">
+                    <h2>Neuer Task</h2>
+                    <form id="taskForm">
+                        <div class="form-group">
+                            <label for="repoSelect">Repository</label>
+                            <select id="repoSelect" required>
+                                <option value="">Lade Repositories...</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="taskDesc">Task-Beschreibung</label>
+                            <textarea id="taskDesc" placeholder="z.B. Fuege eine README.md Datei hinzu mit Projektdokumentation" required></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label for="branchName">Branch</label>
+                            <input type="text" id="branchName" placeholder="main" value="main">
+                        </div>
+                        <div class="form-group">
+                            <label class="checkbox-group">
+                                <input type="checkbox" id="createBranch">
+                                Neuen Branch erstellen
+                            </label>
+                        </div>
+                        <div class="collapsible">
+                            <div class="collapsible-header" onclick="toggleCollapsible(this)">
+                                <span>+</span> Erweiterte Optionen
+                            </div>
+                            <div class="collapsible-content hidden">
+                                <div class="form-group">
+                                    <label for="testCommand">Test-Befehl (optional)</label>
+                                    <input type="text" id="testCommand" placeholder="z.B. npm test">
+                                </div>
+                                <div class="form-group">
+                                    <label for="commitMessage">Commit-Nachricht (optional)</label>
+                                    <input type="text" id="commitMessage" placeholder="Automatisch generiert">
+                                </div>
+                                <div class="form-group">
+                                    <label class="checkbox-group">
+                                        <input type="checkbox" id="commitOnTestFailure">
+                                        Commit auch bei fehlgeschlagenen Tests
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-primary" id="submitBtn">
+                            Task starten
+                        </button>
+                    </form>
+                </div>
+
+                <div class="card">
+                    <h2>Aktive Tasks</h2>
+                    <ul id="taskList" class="task-list">
+                        <li class="empty-state">Keine aktiven Tasks</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="card" style="margin-top: 20px;">
+                <h2>Task-Details</h2>
+                <div id="taskDetails">
+                    <div class="empty-state">Waehle einen Task aus der Liste</div>
+                </div>
+                <div id="logViewer" class="log-viewer hidden"></div>
+            </div>
+        </div>
+
+        <div id="reposTab" class="hidden">
+            <div class="card">
+                <h2>GitHub Repositories</h2>
+                <div id="repoList">
+                    <div class="empty-state">Lade Repositories...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = window.location.origin;
+        let repos = [];
+        let tasks = [];
+        let selectedTaskId = null;
+        let pollInterval = null;
+
+        // Tab switching
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+
+                const tabName = tab.dataset.tab;
+                document.getElementById('tasksTab').classList.toggle('hidden', tabName !== 'tasks');
+                document.getElementById('reposTab').classList.toggle('hidden', tabName !== 'repos');
+            });
+        });
+
+        // Toggle collapsible
+        function toggleCollapsible(header) {
+            const content = header.nextElementSibling;
+            const isHidden = content.classList.toggle('hidden');
+            header.querySelector('span').textContent = isHidden ? '+' : '-';
+        }
+
+        // Check server health
+        async function checkHealth() {
+            try {
+                const res = await fetch(`${API_BASE}/health`);
+                const data = await res.json();
+                const badge = document.getElementById('serverStatus');
+                badge.textContent = `Online (${data.activeTasks} Tasks)`;
+                badge.classList.add('healthy');
+            } catch (e) {
+                const badge = document.getElementById('serverStatus');
+                badge.textContent = 'Offline';
+                badge.classList.remove('healthy');
+            }
+        }
+
+        // Load repositories
+        async function loadRepos() {
+            try {
+                const res = await fetch(`${API_BASE}/repos`);
+                const data = await res.json();
+                repos = data.repos || [];
+                renderRepoSelect();
+                renderRepoList();
+            } catch (e) {
+                console.error('Failed to load repos:', e);
+                document.getElementById('repoSelect').innerHTML = '<option value="">Fehler beim Laden</option>';
+            }
+        }
+
+        // Render repo select dropdown
+        function renderRepoSelect() {
+            const select = document.getElementById('repoSelect');
+            if (repos.length === 0) {
+                select.innerHTML = '<option value="">Keine Repositories gefunden</option>';
+                return;
+            }
+            select.innerHTML = '<option value="">Repository waehlen...</option>' +
+                repos.map(r => `<option value="${r.url}">${r.name}</option>`).join('');
+        }
+
+        // Render repo list in repos tab
+        function renderRepoList() {
+            const container = document.getElementById('repoList');
+            if (repos.length === 0) {
+                container.innerHTML = '<div class="empty-state">Keine Repositories gefunden</div>';
+                return;
+            }
+            container.innerHTML = repos.map(r => `
+                <div class="repo-item">
+                    <div class="repo-info">
+                        <div class="repo-name">${r.name}</div>
+                        ${r.description ? `<div class="repo-desc">${r.description}</div>` : ''}
+                    </div>
+                    <span class="repo-badge ${r.isPrivate ? 'private' : ''}">${r.isPrivate ? 'Private' : 'Public'}</span>
+                </div>
+            `).join('');
+        }
+
+        // Load tasks
+        async function loadTasks() {
+            try {
+                const res = await fetch(`${API_BASE}/tasks`);
+                const data = await res.json();
+                tasks = data.tasks || [];
+                renderTaskList();
+
+                if (selectedTaskId) {
+                    loadTaskDetails(selectedTaskId);
+                }
+            } catch (e) {
+                console.error('Failed to load tasks:', e);
+            }
+        }
+
+        // Render task list
+        function renderTaskList() {
+            const list = document.getElementById('taskList');
+            if (tasks.length === 0) {
+                list.innerHTML = '<li class="empty-state">Keine aktiven Tasks</li>';
+                return;
+            }
+            list.innerHTML = tasks.map(t => `
+                <li class="task-item ${t.id === selectedTaskId ? 'selected' : ''}" onclick="selectTask('${t.id}')">
+                    <div class="task-header">
+                        <span class="task-repo">${t.repo}</span>
+                        <span class="task-status ${t.status}">${t.status}</span>
+                    </div>
+                    <div class="task-step">${t.step}</div>
+                </li>
+            `).join('');
+        }
+
+        // Select task
+        function selectTask(taskId) {
+            selectedTaskId = taskId;
+            renderTaskList();
+            loadTaskDetails(taskId);
+        }
+
+        // Load task details
+        async function loadTaskDetails(taskId) {
+            try {
+                const res = await fetch(`${API_BASE}/task/${taskId}`);
+                const task = await res.json();
+
+                const details = document.getElementById('taskDetails');
+                const logViewer = document.getElementById('logViewer');
+
+                details.innerHTML = `
+                    <div style="margin-bottom: 15px;">
+                        <strong>Status:</strong>
+                        <span class="task-status ${task.status}">${task.status}</span>
+                        <span style="margin-left: 10px; color: var(--text-secondary);">${task.step}</span>
+                    </div>
+                    ${task.result ? `
+                        <div class="result-box ${task.result.success ? 'success' : 'error'}">
+                            ${task.result.message}
+                            ${task.result.commit ? `<br>Commit: ${task.result.commit}` : ''}
+                            ${task.result.branch ? `<br>Branch: ${task.result.branch}` : ''}
+                        </div>
+                    ` : ''}
+                `;
+
+                logViewer.classList.remove('hidden');
+                logViewer.innerHTML = task.logs.map(l => `<div class="log-line">${escapeHtml(l)}</div>`).join('');
+                logViewer.scrollTop = logViewer.scrollHeight;
+            } catch (e) {
+                console.error('Failed to load task details:', e);
+            }
+        }
+
+        // Escape HTML
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Submit task form
+        document.getElementById('taskForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const submitBtn = document.getElementById('submitBtn');
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<div class="spinner"></div> Wird gestartet...';
+
+            const payload = {
+                repo: document.getElementById('repoSelect').value,
+                task: document.getElementById('taskDesc').value,
+                branch: document.getElementById('branchName').value || 'main',
+                createBranch: document.getElementById('createBranch').checked
+            };
+
+            const testCmd = document.getElementById('testCommand').value;
+            if (testCmd) payload.testCommand = testCmd;
+
+            const commitMsg = document.getElementById('commitMessage').value;
+            if (commitMsg) payload.commitMessage = commitMsg;
+
+            if (document.getElementById('commitOnTestFailure').checked) {
+                payload.commitOnTestFailure = true;
+            }
+
+            try {
+                const res = await fetch(`${API_BASE}/task`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                const data = await res.json();
+
+                if (res.ok) {
+                    selectedTaskId = data.taskId;
+                    document.getElementById('taskDesc').value = '';
+                    loadTasks();
+                } else {
+                    alert('Fehler: ' + data.error);
+                }
+            } catch (e) {
+                alert('Verbindungsfehler: ' + e.message);
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = 'Task starten';
+            }
+        });
+
+        // Initial load
+        checkHealth();
+        loadRepos();
+        loadTasks();
+
+        // Polling
+        pollInterval = setInterval(() => {
+            checkHealth();
+            loadTasks();
+        }, 3000);
+    </script>
+</body>
+</html>

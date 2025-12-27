@@ -13,6 +13,18 @@ const path = require('path');
 const PORT = process.env.API_PORT || 3100;
 const WORKSPACE = process.env.WORKSPACE || '/home/claude/workspace';
 const LOG_DIR = path.join(WORKSPACE, '.logs');
+const PUBLIC_DIR = path.join(__dirname, 'public');
+
+// MIME types for static files
+const MIME_TYPES = {
+    '.html': 'text/html',
+    '.css': 'text/css',
+    '.js': 'application/javascript',
+    '.json': 'application/json',
+    '.png': 'image/png',
+    '.svg': 'image/svg+xml',
+    '.ico': 'image/x-icon'
+};
 
 // Ensure log directory exists
 if (!fs.existsSync(LOG_DIR)) {
@@ -250,11 +262,42 @@ function sendJson(res, status, data) {
 }
 
 /**
+ * Serve static file
+ */
+function serveStaticFile(res, filePath) {
+    const ext = path.extname(filePath);
+    const mimeType = MIME_TYPES[ext] || 'application/octet-stream';
+
+    fs.readFile(filePath, (err, data) => {
+        if (err) {
+            res.writeHead(404, { 'Content-Type': 'text/plain' });
+            res.end('Not Found');
+            return;
+        }
+        res.writeHead(200, { 'Content-Type': mimeType });
+        res.end(data);
+    });
+}
+
+/**
+ * Fetch GitHub repositories
+ */
+async function fetchGitHubRepos() {
+    try {
+        const result = await execCommand('gh repo list --json name,url,description,updatedAt,isPrivate --limit 100', process.cwd());
+        return JSON.parse(result.stdout);
+    } catch (error) {
+        console.error('Failed to fetch repos:', error.message);
+        return [];
+    }
+}
+
+/**
  * HTTP Request Handler
  */
 async function handleRequest(req, res) {
     const url = new URL(req.url, `http://localhost:${PORT}`);
-    const path = url.pathname;
+    const urlPath = url.pathname;
     const method = req.method;
 
     // CORS headers
@@ -270,7 +313,7 @@ async function handleRequest(req, res) {
 
     try {
         // Health check
-        if (path === '/health' && method === 'GET') {
+        if (urlPath === '/health' && method === 'GET') {
             sendJson(res, 200, {
                 status: 'healthy',
                 version: '1.0.0',
@@ -280,8 +323,15 @@ async function handleRequest(req, res) {
             return;
         }
 
+        // GitHub repositories list
+        if (urlPath === '/repos' && method === 'GET') {
+            const repos = await fetchGitHubRepos();
+            sendJson(res, 200, { repos });
+            return;
+        }
+
         // Start new task
-        if (path === '/task' && method === 'POST') {
+        if (urlPath === '/task' && method === 'POST') {
             const body = await parseBody(req);
 
             // Validate required fields
@@ -323,8 +373,8 @@ async function handleRequest(req, res) {
         }
 
         // Get task status
-        if (path.startsWith('/task/') && method === 'GET') {
-            const taskId = path.split('/')[2];
+        if (urlPath.startsWith('/task/') && method === 'GET') {
+            const taskId = urlPath.split('/')[2];
             const task = activeTasks.get(taskId);
 
             if (!task) {
@@ -347,7 +397,7 @@ async function handleRequest(req, res) {
         }
 
         // List all tasks
-        if (path === '/tasks' && method === 'GET') {
+        if (urlPath === '/tasks' && method === 'GET') {
             const tasks = Array.from(activeTasks.values()).map(t => ({
                 id: t.id,
                 status: t.status,
@@ -360,13 +410,15 @@ async function handleRequest(req, res) {
         }
 
         // API documentation
-        if (path === '/' && method === 'GET') {
+        if (urlPath === '/api' && method === 'GET') {
             sendJson(res, 200, {
                 name: 'Claude Code Server API',
                 version: '1.0.0',
                 endpoints: {
-                    'GET /': 'This documentation',
+                    'GET /': 'Web Interface',
+                    'GET /api': 'This documentation',
                     'GET /health': 'Health check',
+                    'GET /repos': 'List GitHub repositories',
                     'POST /task': 'Start new task',
                     'GET /task/:id': 'Get task status',
                     'GET /tasks': 'List all tasks'
@@ -389,6 +441,23 @@ async function handleRequest(req, res) {
                 }
             });
             return;
+        }
+
+        // Serve static files (Web Interface)
+        if (method === 'GET') {
+            let filePath = urlPath === '/' ? '/index.html' : urlPath;
+            const fullPath = path.join(PUBLIC_DIR, filePath);
+
+            // Security: prevent directory traversal
+            if (!fullPath.startsWith(PUBLIC_DIR)) {
+                sendJson(res, 403, { error: 'Forbidden' });
+                return;
+            }
+
+            if (fs.existsSync(fullPath) && fs.statSync(fullPath).isFile()) {
+                serveStaticFile(res, fullPath);
+                return;
+            }
         }
 
         // 404 for unknown routes
