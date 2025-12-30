@@ -175,6 +175,13 @@ print_status() {
 main() {
     log_info "Starting Claude Code Server..."
 
+    # Source optional Supabase config (for JonasHub auth)
+    if [ -f "$HOME/.claude/supabase.env" ]; then
+        log_info "Loading Supabase configuration..."
+        source "$HOME/.claude/supabase.env"
+        log_success "Supabase configuration loaded"
+    fi
+
     # Run setup steps
     setup_ssh
     setup_git

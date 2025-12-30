@@ -3,6 +3,7 @@
  * Claude Code Server API
  *
  * HTTP endpoint to trigger clone -> develop -> test -> commit -> push workflow
+ * Protected by JonasHub Supabase authentication (admin-only)
  */
 
 const http = require('http');
@@ -14,6 +15,80 @@ const PORT = process.env.API_PORT || 3100;
 const WORKSPACE = process.env.WORKSPACE || '/home/claude/workspace';
 const LOG_DIR = path.join(WORKSPACE, '.logs');
 const PUBLIC_DIR = path.join(__dirname, 'public');
+
+// Supabase Configuration (JonasHub shared instance)
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || 'https://supabase.jonashub.jonasreitz.de';
+const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '';
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+
+/**
+ * Verify JWT token and check if user is admin
+ * Returns { valid: boolean, user: object|null, isAdmin: boolean, error: string|null }
+ */
+async function verifyAuthToken(token) {
+    if (!token) {
+        return { valid: false, user: null, isAdmin: false, error: 'No token provided' };
+    }
+
+    if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
+        console.warn('Supabase not configured - authentication disabled');
+        return { valid: true, user: null, isAdmin: true, error: null }; // Allow access if not configured
+    }
+
+    try {
+        // Verify token by getting user from Supabase
+        const userResponse = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'apikey': SUPABASE_SERVICE_KEY
+            }
+        });
+
+        if (!userResponse.ok) {
+            return { valid: false, user: null, isAdmin: false, error: 'Invalid token' };
+        }
+
+        const user = await userResponse.json();
+
+        if (!user || !user.id) {
+            return { valid: false, user: null, isAdmin: false, error: 'User not found' };
+        }
+
+        // Check if user is admin using the is_admin RPC function
+        const adminCheckResponse = await fetch(`${SUPABASE_URL}/rest/v1/rpc/is_admin`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'apikey': SUPABASE_SERVICE_KEY,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ check_user_id: user.id })
+        });
+
+        if (!adminCheckResponse.ok) {
+            console.error('Admin check failed:', await adminCheckResponse.text());
+            return { valid: true, user, isAdmin: false, error: 'Admin check failed' };
+        }
+
+        const isAdmin = await adminCheckResponse.json();
+
+        return { valid: true, user, isAdmin: isAdmin === true, error: null };
+    } catch (error) {
+        console.error('Auth verification error:', error);
+        return { valid: false, user: null, isAdmin: false, error: error.message };
+    }
+}
+
+/**
+ * Extract Bearer token from Authorization header
+ */
+function extractToken(req) {
+    const authHeader = req.headers['authorization'];
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+        return authHeader.substring(7);
+    }
+    return null;
+}
 
 // MIME types for static files
 const MIME_TYPES = {
@@ -300,10 +375,10 @@ async function handleRequest(req, res) {
     const urlPath = url.pathname;
     const method = req.method;
 
-    // CORS headers
+    // CORS headers - allow credentials for auth
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
     if (method === 'OPTIONS') {
         res.writeHead(204);
@@ -312,25 +387,134 @@ async function handleRequest(req, res) {
     }
 
     try {
-        // Health check
+        // Health check - public endpoint
         if (urlPath === '/health' && method === 'GET') {
             sendJson(res, 200, {
                 status: 'healthy',
-                version: '1.0.0',
+                version: '1.1.0',
                 timestamp: new Date().toISOString(),
-                activeTasks: activeTasks.size
+                activeTasks: activeTasks.size,
+                authEnabled: !!(SUPABASE_URL && SUPABASE_SERVICE_KEY)
             });
             return;
         }
 
-        // GitHub repositories list
+        // Auth endpoint - for login
+        if (urlPath === '/auth/login' && method === 'POST') {
+            const body = await parseBody(req);
+
+            if (!body.email || !body.password) {
+                sendJson(res, 400, { error: 'Email and password required' });
+                return;
+            }
+
+            try {
+                const loginResponse = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+                    method: 'POST',
+                    headers: {
+                        'apikey': SUPABASE_ANON_KEY || SUPABASE_SERVICE_KEY,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        email: body.email,
+                        password: body.password
+                    })
+                });
+
+                const loginData = await loginResponse.json();
+
+                if (!loginResponse.ok) {
+                    sendJson(res, 401, { error: loginData.error_description || loginData.msg || 'Login failed' });
+                    return;
+                }
+
+                // Check if user is admin
+                const authResult = await verifyAuthToken(loginData.access_token);
+
+                if (!authResult.isAdmin) {
+                    sendJson(res, 403, { error: 'Admin access required' });
+                    return;
+                }
+
+                sendJson(res, 200, {
+                    access_token: loginData.access_token,
+                    refresh_token: loginData.refresh_token,
+                    expires_in: loginData.expires_in,
+                    user: authResult.user
+                });
+                return;
+            } catch (error) {
+                console.error('Login error:', error);
+                sendJson(res, 500, { error: 'Login failed' });
+                return;
+            }
+        }
+
+        // Auth check endpoint - verify current session
+        if (urlPath === '/auth/check' && method === 'GET') {
+            const token = extractToken(req);
+            const authResult = await verifyAuthToken(token);
+
+            if (!authResult.valid || !authResult.isAdmin) {
+                sendJson(res, 401, { authenticated: false, isAdmin: false });
+                return;
+            }
+
+            sendJson(res, 200, {
+                authenticated: true,
+                isAdmin: authResult.isAdmin,
+                user: authResult.user
+            });
+            return;
+        }
+
+        // Logout endpoint
+        if (urlPath === '/auth/logout' && method === 'POST') {
+            const token = extractToken(req);
+            if (token) {
+                try {
+                    await fetch(`${SUPABASE_URL}/auth/v1/logout`, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${token}`,
+                            'apikey': SUPABASE_SERVICE_KEY
+                        }
+                    });
+                } catch (e) {
+                    // Ignore logout errors
+                }
+            }
+            sendJson(res, 200, { success: true });
+            return;
+        }
+
+        // Protected endpoints - require admin authentication
+        const protectedPaths = ['/repos', '/task', '/tasks', '/api'];
+        const isProtectedPath = protectedPaths.some(p => urlPath === p || urlPath.startsWith('/task/'));
+
+        if (isProtectedPath) {
+            const token = extractToken(req);
+            const authResult = await verifyAuthToken(token);
+
+            if (!authResult.valid) {
+                sendJson(res, 401, { error: 'Authentication required', code: 'AUTH_REQUIRED' });
+                return;
+            }
+
+            if (!authResult.isAdmin) {
+                sendJson(res, 403, { error: 'Admin access required', code: 'ADMIN_REQUIRED' });
+                return;
+            }
+        }
+
+        // GitHub repositories list (now protected)
         if (urlPath === '/repos' && method === 'GET') {
             const repos = await fetchGitHubRepos();
             sendJson(res, 200, { repos });
             return;
         }
 
-        // Start new task
+        // Start new task (now protected)
         if (urlPath === '/task' && method === 'POST') {
             const body = await parseBody(req);
 

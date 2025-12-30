@@ -58,6 +58,24 @@
             color: var(--accent-purple);
         }
 
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        .user-email {
+            color: var(--accent-blue);
+        }
+
         .status-badge {
             padding: 6px 12px;
             border-radius: 20px;
@@ -172,6 +190,20 @@
             background: var(--bg-tertiary);
             color: var(--text-primary);
             border: 1px solid var(--border-color);
+        }
+
+        .btn-danger {
+            background: var(--accent-red);
+            color: #fff;
+        }
+
+        .btn-danger:hover {
+            background: #d73a49;
+        }
+
+        .btn-small {
+            padding: 6px 12px;
+            font-size: 0.85rem;
         }
 
         .task-list {
@@ -374,94 +406,201 @@
             border: 1px solid var(--accent-red);
             color: var(--accent-red);
         }
+
+        /* Login styles */
+        .login-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: var(--bg-primary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .login-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 40px;
+            width: 100%;
+            max-width: 400px;
+            text-align: center;
+        }
+
+        .login-card h1 {
+            font-size: 1.8rem;
+            margin-bottom: 10px;
+        }
+
+        .login-card h1 span {
+            color: var(--accent-purple);
+        }
+
+        .login-subtitle {
+            color: var(--text-secondary);
+            margin-bottom: 30px;
+            font-size: 0.95rem;
+        }
+
+        .login-error {
+            background: rgba(248, 81, 73, 0.1);
+            border: 1px solid var(--accent-red);
+            color: var(--accent-red);
+            padding: 10px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+            font-size: 0.9rem;
+        }
+
+        .admin-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 2px 8px;
+            background: rgba(163, 113, 247, 0.2);
+            color: var(--accent-purple);
+            border-radius: 10px;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+        }
+
+        .loading-spinner {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 40px;
+        }
+
+        .loading-spinner .spinner {
+            width: 40px;
+            height: 40px;
+        }
     </style>
 </head>
 <body>
-    <div class="container">
-        <header>
+    <!-- Login Overlay -->
+    <div id="loginOverlay" class="login-overlay">
+        <div class="login-card">
             <h1><span>Claude</span> Code Server</h1>
-            <div id="serverStatus" class="status-badge">Verbinde...</div>
-        </header>
+            <p class="login-subtitle">Admin-Zugang erforderlich</p>
 
-        <div class="tabs">
-            <div class="tab active" data-tab="tasks">Tasks</div>
-            <div class="tab" data-tab="repos">Repositories</div>
+            <div id="loginError" class="login-error hidden"></div>
+
+            <form id="loginForm">
+                <div class="form-group">
+                    <label for="loginEmail">E-Mail</label>
+                    <input type="email" id="loginEmail" placeholder="admin@example.com" required autocomplete="email">
+                </div>
+                <div class="form-group">
+                    <label for="loginPassword">Passwort</label>
+                    <input type="password" id="loginPassword" placeholder="********" required autocomplete="current-password">
+                </div>
+                <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 10px;" id="loginBtn">
+                    Anmelden
+                </button>
+            </form>
         </div>
+    </div>
 
-        <div id="tasksTab">
-            <div class="grid">
-                <div class="card">
-                    <h2>Neuer Task</h2>
-                    <form id="taskForm">
-                        <div class="form-group">
-                            <label for="repoSelect">Repository</label>
-                            <select id="repoSelect" required>
-                                <option value="">Lade Repositories...</option>
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label for="taskDesc">Task-Beschreibung</label>
-                            <textarea id="taskDesc" placeholder="z.B. Fuege eine README.md Datei hinzu mit Projektdokumentation" required></textarea>
-                        </div>
-                        <div class="form-group">
-                            <label for="branchName">Branch</label>
-                            <input type="text" id="branchName" placeholder="main" value="main">
-                        </div>
-                        <div class="form-group">
-                            <label class="checkbox-group">
-                                <input type="checkbox" id="createBranch">
-                                Neuen Branch erstellen
-                            </label>
-                        </div>
-                        <div class="collapsible">
-                            <div class="collapsible-header" onclick="toggleCollapsible(this)">
-                                <span>+</span> Erweiterte Optionen
+    <!-- Main App -->
+    <div id="mainApp" class="hidden">
+        <div class="container">
+            <header>
+                <h1><span>Claude</span> Code Server</h1>
+                <div class="header-right">
+                    <div class="user-info">
+                        <span class="admin-badge">Admin</span>
+                        <span class="user-email" id="userEmail"></span>
+                    </div>
+                    <div id="serverStatus" class="status-badge">Verbinde...</div>
+                    <button class="btn btn-danger btn-small" onclick="logout()">Abmelden</button>
+                </div>
+            </header>
+
+            <div class="tabs">
+                <div class="tab active" data-tab="tasks">Tasks</div>
+                <div class="tab" data-tab="repos">Repositories</div>
+            </div>
+
+            <div id="tasksTab">
+                <div class="grid">
+                    <div class="card">
+                        <h2>Neuer Task</h2>
+                        <form id="taskForm">
+                            <div class="form-group">
+                                <label for="repoSelect">Repository</label>
+                                <select id="repoSelect" required>
+                                    <option value="">Lade Repositories...</option>
+                                </select>
                             </div>
-                            <div class="collapsible-content hidden">
-                                <div class="form-group">
-                                    <label for="testCommand">Test-Befehl (optional)</label>
-                                    <input type="text" id="testCommand" placeholder="z.B. npm test">
+                            <div class="form-group">
+                                <label for="taskDesc">Task-Beschreibung</label>
+                                <textarea id="taskDesc" placeholder="z.B. Fuege eine README.md Datei hinzu mit Projektdokumentation" required></textarea>
+                            </div>
+                            <div class="form-group">
+                                <label for="branchName">Branch</label>
+                                <input type="text" id="branchName" placeholder="main" value="main">
+                            </div>
+                            <div class="form-group">
+                                <label class="checkbox-group">
+                                    <input type="checkbox" id="createBranch">
+                                    Neuen Branch erstellen
+                                </label>
+                            </div>
+                            <div class="collapsible">
+                                <div class="collapsible-header" onclick="toggleCollapsible(this)">
+                                    <span>+</span> Erweiterte Optionen
                                 </div>
-                                <div class="form-group">
-                                    <label for="commitMessage">Commit-Nachricht (optional)</label>
-                                    <input type="text" id="commitMessage" placeholder="Automatisch generiert">
-                                </div>
-                                <div class="form-group">
-                                    <label class="checkbox-group">
-                                        <input type="checkbox" id="commitOnTestFailure">
-                                        Commit auch bei fehlgeschlagenen Tests
-                                    </label>
+                                <div class="collapsible-content hidden">
+                                    <div class="form-group">
+                                        <label for="testCommand">Test-Befehl (optional)</label>
+                                        <input type="text" id="testCommand" placeholder="z.B. npm test">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="commitMessage">Commit-Nachricht (optional)</label>
+                                        <input type="text" id="commitMessage" placeholder="Automatisch generiert">
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="checkbox-group">
+                                            <input type="checkbox" id="commitOnTestFailure">
+                                            Commit auch bei fehlgeschlagenen Tests
+                                        </label>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                        <button type="submit" class="btn btn-primary" id="submitBtn">
-                            Task starten
-                        </button>
-                    </form>
+                            <button type="submit" class="btn btn-primary" id="submitBtn">
+                                Task starten
+                            </button>
+                        </form>
+                    </div>
+
+                    <div class="card">
+                        <h2>Aktive Tasks</h2>
+                        <ul id="taskList" class="task-list">
+                            <li class="empty-state">Keine aktiven Tasks</li>
+                        </ul>
+                    </div>
                 </div>
 
-                <div class="card">
-                    <h2>Aktive Tasks</h2>
-                    <ul id="taskList" class="task-list">
-                        <li class="empty-state">Keine aktiven Tasks</li>
-                    </ul>
+                <div class="card" style="margin-top: 20px;">
+                    <h2>Task-Details</h2>
+                    <div id="taskDetails">
+                        <div class="empty-state">Waehle einen Task aus der Liste</div>
+                    </div>
+                    <div id="logViewer" class="log-viewer hidden"></div>
                 </div>
             </div>
 
-            <div class="card" style="margin-top: 20px;">
-                <h2>Task-Details</h2>
-                <div id="taskDetails">
-                    <div class="empty-state">Waehle einen Task aus der Liste</div>
-                </div>
-                <div id="logViewer" class="log-viewer hidden"></div>
-            </div>
-        </div>
-
-        <div id="reposTab" class="hidden">
-            <div class="card">
-                <h2>GitHub Repositories</h2>
-                <div id="repoList">
-                    <div class="empty-state">Lade Repositories...</div>
+            <div id="reposTab" class="hidden">
+                <div class="card">
+                    <h2>GitHub Repositories</h2>
+                    <div id="repoList">
+                        <div class="empty-state">Lade Repositories...</div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -473,6 +612,157 @@
         let tasks = [];
         let selectedTaskId = null;
         let pollInterval = null;
+        let authToken = null;
+
+        // Auth functions
+        function getStoredAuth() {
+            try {
+                const stored = localStorage.getItem('claude_code_auth');
+                if (stored) {
+                    const auth = JSON.parse(stored);
+                    if (auth.access_token && auth.expires_at > Date.now()) {
+                        return auth;
+                    }
+                    // Token expired, clear it
+                    localStorage.removeItem('claude_code_auth');
+                }
+            } catch (e) {
+                localStorage.removeItem('claude_code_auth');
+            }
+            return null;
+        }
+
+        function storeAuth(data) {
+            const auth = {
+                access_token: data.access_token,
+                refresh_token: data.refresh_token,
+                user: data.user,
+                expires_at: Date.now() + (data.expires_in * 1000)
+            };
+            localStorage.setItem('claude_code_auth', JSON.stringify(auth));
+            return auth;
+        }
+
+        function clearAuth() {
+            localStorage.removeItem('claude_code_auth');
+            authToken = null;
+        }
+
+        async function authFetch(url, options = {}) {
+            const headers = {
+                ...options.headers,
+                'Authorization': `Bearer ${authToken}`
+            };
+            return fetch(url, { ...options, headers });
+        }
+
+        async function checkAuth() {
+            const stored = getStoredAuth();
+            if (!stored) {
+                showLogin();
+                return false;
+            }
+
+            authToken = stored.access_token;
+
+            try {
+                const res = await authFetch(`${API_BASE}/auth/check`);
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.authenticated && data.isAdmin) {
+                        showApp(stored.user || data.user);
+                        return true;
+                    }
+                }
+            } catch (e) {
+                console.error('Auth check failed:', e);
+            }
+
+            clearAuth();
+            showLogin();
+            return false;
+        }
+
+        function showLogin() {
+            document.getElementById('loginOverlay').classList.remove('hidden');
+            document.getElementById('mainApp').classList.add('hidden');
+            if (pollInterval) {
+                clearInterval(pollInterval);
+                pollInterval = null;
+            }
+        }
+
+        function showApp(user) {
+            document.getElementById('loginOverlay').classList.add('hidden');
+            document.getElementById('mainApp').classList.remove('hidden');
+
+            if (user && user.email) {
+                document.getElementById('userEmail').textContent = user.email;
+            }
+
+            // Start app
+            checkHealth();
+            loadRepos();
+            loadTasks();
+
+            if (!pollInterval) {
+                pollInterval = setInterval(() => {
+                    checkHealth();
+                    loadTasks();
+                }, 3000);
+            }
+        }
+
+        async function login(email, password) {
+            const loginBtn = document.getElementById('loginBtn');
+            const loginError = document.getElementById('loginError');
+
+            loginBtn.disabled = true;
+            loginBtn.innerHTML = '<div class="spinner"></div> Anmelden...';
+            loginError.classList.add('hidden');
+
+            try {
+                const res = await fetch(`${API_BASE}/auth/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password })
+                });
+
+                const data = await res.json();
+
+                if (!res.ok) {
+                    throw new Error(data.error || 'Anmeldung fehlgeschlagen');
+                }
+
+                const auth = storeAuth(data);
+                authToken = auth.access_token;
+                showApp(data.user);
+            } catch (e) {
+                loginError.textContent = e.message;
+                loginError.classList.remove('hidden');
+            } finally {
+                loginBtn.disabled = false;
+                loginBtn.textContent = 'Anmelden';
+            }
+        }
+
+        async function logout() {
+            try {
+                await authFetch(`${API_BASE}/auth/logout`, { method: 'POST' });
+            } catch (e) {
+                // Ignore
+            }
+            clearAuth();
+            showLogin();
+        }
+
+        // Login form handler
+        document.getElementById('loginForm').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const email = document.getElementById('loginEmail').value;
+            const password = document.getElementById('loginPassword').value;
+            login(email, password);
+        });
 
         // Tab switching
         document.querySelectorAll('.tab').forEach(tab => {
@@ -511,7 +801,14 @@
         // Load repositories
         async function loadRepos() {
             try {
-                const res = await fetch(`${API_BASE}/repos`);
+                const res = await authFetch(`${API_BASE}/repos`);
+
+                if (res.status === 401) {
+                    clearAuth();
+                    showLogin();
+                    return;
+                }
+
                 const data = await res.json();
                 repos = data.repos || [];
                 renderRepoSelect();
@@ -554,7 +851,14 @@
         // Load tasks
         async function loadTasks() {
             try {
-                const res = await fetch(`${API_BASE}/tasks`);
+                const res = await authFetch(`${API_BASE}/tasks`);
+
+                if (res.status === 401) {
+                    clearAuth();
+                    showLogin();
+                    return;
+                }
+
                 const data = await res.json();
                 tasks = data.tasks || [];
                 renderTaskList();
@@ -595,7 +899,14 @@
         // Load task details
         async function loadTaskDetails(taskId) {
             try {
-                const res = await fetch(`${API_BASE}/task/${taskId}`);
+                const res = await authFetch(`${API_BASE}/task/${taskId}`);
+
+                if (res.status === 401) {
+                    clearAuth();
+                    showLogin();
+                    return;
+                }
+
                 const task = await res.json();
 
                 const details = document.getElementById('taskDetails');
@@ -657,11 +968,17 @@
             }
 
             try {
-                const res = await fetch(`${API_BASE}/task`, {
+                const res = await authFetch(`${API_BASE}/task`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
                 });
+
+                if (res.status === 401) {
+                    clearAuth();
+                    showLogin();
+                    return;
+                }
 
                 const data = await res.json();
 
@@ -680,16 +997,8 @@
             }
         });
 
-        // Initial load
-        checkHealth();
-        loadRepos();
-        loadTasks();
-
-        // Polling
-        pollInterval = setInterval(() => {
-            checkHealth();
-            loadTasks();
-        }, 3000);
+        // Initial auth check
+        checkAuth();
     </script>
 </body>
 </html>
