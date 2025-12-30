@@ -109,6 +109,36 @@ if (!fs.existsSync(LOG_DIR)) {
 // Active tasks storage
 const activeTasks = new Map();
 
+// Global quota exhausted flag - stops all new tasks
+let quotaExhausted = false;
+let quotaExhaustedAt = null;
+
+/**
+ * Check if error output indicates quota exhaustion
+ */
+function isQuotaExhaustedError(output) {
+    if (!output) return false;
+    const lowerOutput = output.toLowerCase();
+    return (
+        lowerOutput.includes('credit') ||
+        lowerOutput.includes('quota') ||
+        lowerOutput.includes('billing') ||
+        lowerOutput.includes('exceeded') ||
+        lowerOutput.includes('insufficient') ||
+        lowerOutput.includes('rate limit') ||
+        lowerOutput.includes('429') ||
+        lowerOutput.includes('exceeded your current usage')
+    );
+}
+
+/**
+ * Reset quota exhausted flag (for when credits are added)
+ */
+function resetQuotaFlag() {
+    quotaExhausted = false;
+    quotaExhaustedAt = null;
+}
+
 /**
  * Generate unique task ID
  */
@@ -214,8 +244,36 @@ async function executeWorkflow(taskId, config) {
         task.step = 'Running Claude Code';
         log(`Step 3: Running Claude Code with task: ${config.task}`);
 
+        // Check if quota is exhausted before running Claude
+        if (quotaExhausted) {
+            throw new Error('QUOTA_EXHAUSTED: Anthropic API credits depleted. Cannot run Claude Code tasks.');
+        }
+
         const claudeCmd = `cd ${repoDir} && echo "${config.task.replace(/"/g, '\\"')}" | claude --print --dangerously-skip-permissions`;
-        const claudeResult = await execCommand(claudeCmd, repoDir);
+
+        let claudeResult;
+        try {
+            claudeResult = await execCommand(claudeCmd, repoDir);
+        } catch (claudeError) {
+            // Check if the error is quota-related
+            const errorOutput = (claudeError.stdout || '') + (claudeError.stderr || '') + (claudeError.message || '');
+            if (isQuotaExhaustedError(errorOutput)) {
+                quotaExhausted = true;
+                quotaExhaustedAt = new Date().toISOString();
+                log('QUOTA EXHAUSTED: Anthropic API credits depleted');
+                throw new Error('QUOTA_EXHAUSTED: Anthropic API credits depleted. Add credits to resume.');
+            }
+            throw claudeError;
+        }
+
+        // Also check successful output for quota messages (in case Claude exits 0 but with warning)
+        if (isQuotaExhaustedError(claudeResult.stdout) || isQuotaExhaustedError(claudeResult.stderr)) {
+            quotaExhausted = true;
+            quotaExhaustedAt = new Date().toISOString();
+            log('QUOTA EXHAUSTED: Detected in Claude output');
+            throw new Error('QUOTA_EXHAUSTED: Anthropic API credits depleted. Add credits to resume.');
+        }
+
         task.claudeOutput = claudeResult.stdout;
         log('Claude Code completed');
         log(`Output: ${claudeResult.stdout.substring(0, 500)}...`);
@@ -390,11 +448,48 @@ async function handleRequest(req, res) {
         // Health check - public endpoint
         if (urlPath === '/health' && method === 'GET') {
             sendJson(res, 200, {
-                status: 'healthy',
-                version: '1.1.0',
+                status: quotaExhausted ? 'degraded' : 'healthy',
+                version: '1.2.0',
                 timestamp: new Date().toISOString(),
                 activeTasks: activeTasks.size,
-                authEnabled: !!(SUPABASE_URL && SUPABASE_SERVICE_KEY)
+                authEnabled: !!(SUPABASE_URL && SUPABASE_SERVICE_KEY),
+                quotaExhausted: quotaExhausted,
+                quotaExhaustedAt: quotaExhaustedAt,
+                message: quotaExhausted ? 'Anthropic API quota exhausted. Add credits and call POST /quota/reset to resume.' : null
+            });
+            return;
+        }
+
+        // Quota status endpoint - public
+        if (urlPath === '/quota/status' && method === 'GET') {
+            sendJson(res, 200, {
+                quotaExhausted: quotaExhausted,
+                quotaExhaustedAt: quotaExhaustedAt,
+                message: quotaExhausted
+                    ? 'Anthropic API credits depleted. Add credits to your account and call POST /quota/reset to resume.'
+                    : 'Quota OK - API credits available.'
+            });
+            return;
+        }
+
+        // Reset quota flag - requires auth
+        if (urlPath === '/quota/reset' && method === 'POST') {
+            const token = extractToken(req);
+            const authResult = await verifyAuthToken(token);
+
+            if (!authResult.valid || !authResult.isAdmin) {
+                sendJson(res, 401, { error: 'Admin authentication required' });
+                return;
+            }
+
+            const wasExhausted = quotaExhausted;
+            resetQuotaFlag();
+            console.log(`[${new Date().toISOString()}] Quota flag reset by admin`);
+
+            sendJson(res, 200, {
+                success: true,
+                message: wasExhausted ? 'Quota flag reset. Tasks can now be submitted.' : 'Quota was not exhausted.',
+                previousState: { quotaExhausted: wasExhausted, quotaExhaustedAt: quotaExhaustedAt }
             });
             return;
         }
@@ -516,6 +611,17 @@ async function handleRequest(req, res) {
 
         // Start new task (now protected)
         if (urlPath === '/task' && method === 'POST') {
+            // Check quota before accepting task
+            if (quotaExhausted) {
+                sendJson(res, 503, {
+                    error: 'QUOTA_EXHAUSTED',
+                    message: 'Anthropic API credits depleted. Cannot accept new tasks.',
+                    quotaExhaustedAt: quotaExhaustedAt,
+                    resolution: 'Add credits to your Anthropic account and call POST /quota/reset to resume.'
+                });
+                return;
+            }
+
             const body = await parseBody(req);
 
             // Validate required fields
@@ -597,15 +703,17 @@ async function handleRequest(req, res) {
         if (urlPath === '/api' && method === 'GET') {
             sendJson(res, 200, {
                 name: 'Claude Code Server API',
-                version: '1.0.0',
+                version: '1.2.0',
                 endpoints: {
                     'GET /': 'Web Interface',
                     'GET /api': 'This documentation',
-                    'GET /health': 'Health check',
+                    'GET /health': 'Health check (includes quota status)',
                     'GET /repos': 'List GitHub repositories',
                     'POST /task': 'Start new task',
                     'GET /task/:id': 'Get task status',
-                    'GET /tasks': 'List all tasks'
+                    'GET /tasks': 'List all tasks',
+                    'GET /quota/status': 'Check API quota status',
+                    'POST /quota/reset': 'Reset quota exhausted flag (admin only)'
                 },
                 taskSchema: {
                     repo: '(required) Git repository URL',
@@ -659,16 +767,18 @@ const server = http.createServer(handleRequest);
 server.listen(PORT, '0.0.0.0', () => {
     console.log(`
 ╔════════════════════════════════════════════════════════════╗
-║           Claude Code Server API                           ║
+║           Claude Code Server API v1.2.0                    ║
 ╠════════════════════════════════════════════════════════════╣
 ║  Server running on http://0.0.0.0:${PORT}                    ║
 ║                                                            ║
 ║  Endpoints:                                                ║
-║    GET  /          - API documentation                     ║
-║    GET  /health    - Health check                          ║
-║    POST /task      - Start new task                        ║
-║    GET  /task/:id  - Get task status                       ║
-║    GET  /tasks     - List all tasks                        ║
+║    GET  /             - Web Interface                      ║
+║    GET  /health       - Health check                       ║
+║    POST /task         - Start new task                     ║
+║    GET  /task/:id     - Get task status                    ║
+║    GET  /tasks        - List all tasks                     ║
+║    GET  /quota/status - Check quota status                 ║
+║    POST /quota/reset  - Reset quota flag (admin)           ║
 ╚════════════════════════════════════════════════════════════╝
     `);
 });

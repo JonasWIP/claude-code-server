@@ -287,14 +287,22 @@ main() {
             CLAUDE_CMD="$CLAUDE_CMD --model $MODEL"
         fi
 
-        # Run Claude with the task as a prompt
+        # Run Claude with the task as a prompt and capture output
         # Using --print to output the conversation
-        echo "$TASK" | $CLAUDE_CMD --print
+        CLAUDE_OUTPUT=$(echo "$TASK" | $CLAUDE_CMD --print 2>&1)
         CLAUDE_EXIT_CODE=$?
 
+        echo "$CLAUDE_OUTPUT"
         echo ""
         echo "-------------------------------------------"
         echo ""
+
+        # Check for quota exhaustion in output
+        if echo "$CLAUDE_OUTPUT" | grep -qi -E "(credit|quota|billing|exceeded|insufficient|rate.limit)"; then
+            log_error "QUOTA EXHAUSTED: Anthropic API credits may be depleted"
+            log_error "Please check your Anthropic account billing and add credits"
+            exit 100  # Special exit code for quota exhaustion
+        fi
 
         if [ $CLAUDE_EXIT_CODE -eq 0 ]; then
             log_success "Claude Code task completed successfully"
